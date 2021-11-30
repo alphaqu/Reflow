@@ -47,10 +47,9 @@ pub fn read_class_info(mut reader: &Bytes) -> ClassInfo {
     let magic = reader.read_u32();
     let minor_version = reader.read_u16();
     let major_version = reader.read_u16();
-    let constant_pool_count = reader.read_u32();
 
     let mut constant_pool: Vec<ConstantInfo> = Vec::new();
-    for i in 0..constant_pool_count {
+    for i in 0..reader.read_u16() {
         constant_pool.push(read_constant_info(reader));
     };
 
@@ -58,17 +57,39 @@ pub fn read_class_info(mut reader: &Bytes) -> ClassInfo {
     let this_class = reader.read_u16();
     let super_class = reader.read_u16();
 
-    let interfaces_count = reader.read_u32();
     let mut interfaces: Vec<u16> = Vec::new();
-    for i in 0..interfaces_count {
+    for i in 0..reader.read_u16() {
         interfaces.push(reader.read_u16());
     };
 
-    let field_count = reader.read_u32();
-    let mut field: Vec<FieldInfo> = Vec::new();
-    for i in 0..field_count {
-        field.push(read_field(reader));
+    let mut fields: Vec<FieldInfo> = Vec::new();
+    for i in 0..reader.read_u16() {
+        fields.push(read_field(reader));
     };
+
+    let mut methods: Vec<MethodInfo> = Vec::new();
+    for i in 0..reader.read_u16() {
+        methods.push(read_method(reader));
+    };
+
+    let mut attributes: Vec<AttributeInfo> = Vec::new();
+    for i in 0..reader.read_u16() {
+        attributes.push(read_attribute_info(reader));
+    };
+
+    ClassInfo {
+        magic,
+        minor_version,
+        major_version,
+        constant_pool,
+        access_flags,
+        this_class,
+        super_class,
+        interfaces,
+        fields,
+        methods,
+        attributes,
+    }
 }
 
 
@@ -91,9 +112,8 @@ pub fn read_field(mut reader: &Bytes) -> FieldInfo {
     let name_index = reader.read_u16();
     let descriptor_index = reader.read_u16();
 
-    let attributes_count = reader.read_u16();
     let mut attribute_info: Vec<AttributeInfo> = Vec::new();
-    for i in 0..attributes_count {
+    for i in 0..reader.read_u16() {
         attribute_info.push(read_attribute_info(reader));
     };
     FieldInfo {
@@ -115,7 +135,23 @@ pub struct MethodInfo {
     access_flags: u16,
     name_index: u16,
     descriptor_index: u16,
-    attributes: Vec<AttributeInfo>,
+    attribute_info: Vec<AttributeInfo>,
+}
+
+pub fn read_method(mut reader: &Bytes) -> MethodInfo {
+    let access_flags = reader.read_u16();
+    let name_index = reader.read_u16();
+    let descriptor_index = reader.read_u16();
+    let mut attribute_info: Vec<AttributeInfo> = Vec::new();
+    for i in 0..reader.read_u16() {
+        attribute_info.push(read_attribute_info(reader));
+    };
+    MethodInfo {
+        access_flags,
+        name_index,
+        descriptor_index,
+        attribute_info,
+    }
 }
 
 pub enum ConstantInfo {
@@ -162,10 +198,9 @@ pub fn read_constant_info(mut reader: &Bytes) -> ConstantInfo {
             descriptor_index: reader.read_u16(),
         },
         1 => {
-            let length = reader.read_u32();
             let mut bytes: Vec<u8> = Vec::new();
 
-            for i in 0..length {
+            for i in 0..reader.read_u32() {
                 bytes.push(reader.read_u8())
             }
             ConstantInfo::UTF8 {
