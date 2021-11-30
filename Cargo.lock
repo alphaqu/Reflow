@@ -6,15 +6,15 @@ version = 3
 name = "Reflow"
 version = "0.1.0"
 dependencies = [
- "simple-bytes",
+ "bytes",
  "ux",
 ]
 
 [[package]]
-name = "simple-bytes"
-version = "0.2.7"
+name = "bytes"
+version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f6e1e9ae8286717cd63707924ea5e2b434510954055cfdc92c4c7c242edac512"
+checksum = "c4872d67bab6358e59559027aa3b9157c53d9358c51423c17554809a8858e0f8"
 
 [[package]]
 name = "ux"
