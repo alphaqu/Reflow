@@ -1,9 +1,11 @@
 use std::fs::File;
 use std::io::Read;
-use bytes::Buf;
 
+use crate::consts::MethodAccessFlags;
+use crate::java::ClassInfo;
+
+mod consts;
 mod java;
-mod opcodes;
 
 fn main() {
     println!("Hello, world!");
@@ -13,15 +15,15 @@ fn main() {
 
     f.read_to_end(&mut buffer).expect("fuckk");
 
-    let reader1 = &mut buffer.as_slice();
-    let class_info = java::get_class_info(reader1);
+    let (_buffer, class_info) = ClassInfo::parse(&buffer).unwrap();
+
     for x in class_info.methods {
         let i = x.access_flags;
-        if (i & opcodes::ACC_PUBLIC) != 0 {
+        if i.contains(MethodAccessFlags::PUBLIC) {
             println!("public");
-        } else if (i & opcodes::ACC_PROTECTED) != 0 {
+        } else if i.contains(MethodAccessFlags::PROTECTED) {
             println!("protected");
-        } else if (i & opcodes::ACC_PRIVATE) != 0 {
+        } else if i.contains(MethodAccessFlags::PRIVATE) {
             println!("private");
         } else {
             println!("package-private");
@@ -29,6 +31,3 @@ fn main() {
     }
     // and more! See the other methods for more details.
 }
-
-fn printAccess() {}
-
