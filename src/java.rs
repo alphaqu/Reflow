@@ -5,9 +5,10 @@ use nom::combinator::{map, map_opt, map_res};
 use nom::error::{ErrorKind, make_error};
 use nom::multi::{length_count, length_data};
 use nom::number::complete::{be_u16, be_u32, be_u64, be_u8};
-use nom::sequence::pair;
+use nom::sequence::{pair, tuple};
 
 use crate::consts::{self, ClassAccessFlags, FieldAccessFlags, MethodAccessFlags};
+use crate::java::AttributeInfo::Code;
 
 #[derive(Debug)]
 pub struct ClassInfo {
@@ -405,41 +406,58 @@ impl AttributeInfo {
         let (input, length) = be_u32(input)?;
 
         match info {
-            // ConstantInfo::UTF8 { text } => match text.as_str() {
-            //     "ConstantValue" => map(be_u16, |constant_index| AttributeInfo::ConstantValue {
-            //         constant_index,
-            //     })(input),
-            //     "Code" => map(
-            //         tuple((be_u16, be_u16, be_u32)),
-            //         |(max_stack, max_locals, _code_length)| AttributeInfo::Code {
-            //             max_stack,
-            //             max_locals,
-            //             code: vec![],
-            //             exception_table: vec![],
-            //             attribute_info: vec![],
-            //         },
-            //     )(input),
-            //     "StackMapTable" => todo!(),
-            //     "Exceptions" => todo!(),
-            //     "InnerClasses" => todo!(),
-            //     "EnclosingMethod" => todo!(),
-            //     "Synthetic" => todo!(),
-            //     "Signature" => todo!(),
-            //     "SourceFile" => todo!(),
-            //     "SourceDebugExtension" => todo!(),
-            //     "LineNumberTable" => todo!(),
-            //     "LocalVariableTable" => todo!(),
-            //     "LocalVariableTypeTable" => todo!(),
-            //     "Deprecated" => todo!(),
-            //     "RuntimeVisibleAnnotations" => todo!(),
-            //     "RuntimeInvisibleAnnotations" => todo!(),
-            //     "RuntimeVisibleParameterAnnotations" => todo!(),
-            //     "RuntimeInvisibleParameterAnnotations" => todo!(),
-            //     "AnnotationDefault" => todo!(),
-            //     "BootstrapMethods" => todo!(),
-            //     _ => Ok((input, AttributeInfo::AnnotationDefault)),
-            // },
-            // discard the remaining bytes
+            ConstantInfo::UTF8 { text } => match text.as_str() {
+                "ConstantValue" => map(be_u16, |constant_index| AttributeInfo::ConstantValue {
+                    constant_index,
+                })(input),
+                "Code" => map(
+                    tuple((be_u16, be_u16, be_u32)),
+                    |(max_stack, max_locals, code_length)| {
+                        let mut code = Vec::with_capacity(code_length as usize);
+                        for _i in 0..code_length {
+                            code.push(Instruction::parse(input,constant_pool))
+                        }
+
+                        // exception
+                        for _i in 0..be_u16(input)?.1 {
+                            let i = be_u8(input)?.1;
+                        }
+
+                        // Attributes
+                        for _i in 0..be_u16(input)?.1 {
+                            let i = be_u8(input)?.1;
+                        }
+
+                        AttributeInfo::Code {
+                            max_stack,
+                            max_locals,
+                            code: vec![],
+                            exception_table: vec![],
+                            attribute_info: vec![],
+                        }
+                    },
+                )(input),
+                //"StackMapTable" => todo!(),
+                //"Exceptions" => todo!(),
+                //"InnerClasses" => todo!(),
+                //"EnclosingMethod" => todo!(),
+                //"Synthetic" => todo!(),
+                //"Signature" => todo!(),
+                //"SourceFile" => todo!(),
+                //"SourceDebugExtension" => todo!(),
+                //"LineNumberTable" => todo!(),
+                //"LocalVariableTable" => todo!(),
+                //"LocalVariableTypeTable" => todo!(),
+                //"Deprecated" => todo!(),
+                //"RuntimeVisibleAnnotations" => todo!(),
+                //"RuntimeInvisibleAnnotations" => todo!(),
+                //"RuntimeVisibleParameterAnnotations" => todo!(),
+                //"RuntimeInvisibleParameterAnnotations" => todo!(),
+                //"AnnotationDefault" => todo!(),
+                //"BootstrapMethods" => todo!(),
+                _ => map(take(length), |_| AttributeInfo::AnnotationDefault)(input),
+            },
+            //discard the remaining bytes
             _ => map(take(length), |_| AttributeInfo::AnnotationDefault)(input),
         }
     }
@@ -447,41 +465,15 @@ impl AttributeInfo {
 
 #[derive(Debug)]
 pub enum Instruction<'a> {
-    Basic {
-        op: u8,
-    },
-    Typed {
-        op: u8,
-        type_index: u16,
-    },
-    Var {
-        op: u8,
-        var: u16,
-    },
-    Jump {
-        op: u8,
-        location: u32,
-    },
-    Int {
-        op: u8,
-        int: i32,
-    },
-    Constant {
-        op: u8,
-        constant: &'a ConstantInfo,
-    },
-    Field {
-        op: u8,
-        owner: u16,
-        name: u16,
-        descriptor: u16,
-    },
-    Method {
-        op: u8,
-        owner: u16,
-        name: u16,
-        descriptor: u16,
-    },
+    Basic { op: u8 },
+    Typed { op: u8, type_index: u16 },
+    Var { op: u8, var: u16 },
+    Jump { op: u8, location: u32 },
+    Int { op: u8, int: i32 },
+    Inc { op: u8, amount: u8 },
+    Constant { op: u8, constant: &'a ConstantInfo },
+    Field { op: u8, field_index: u16 },
+    Method { op: u8, method_index: u16 },
 }
 
 impl<'a> Instruction<'a> {
@@ -695,34 +687,48 @@ impl<'a> Instruction<'a> {
             })(input),
             consts::SIPUSH => map(be_u16, |val| Instruction::Var { op, var: val })(input),
             consts::LDC => {
-                let (input, constant) = map_opt(be_u8, |val| constant_pool.get(val as u16))(input)?;
+                let (input, constant) =
+                    map_opt(be_u8, |val| constant_pool.get((val as u16)))(input)?;
                 Ok((input, Instruction::Constant { op, constant }))
             }
             consts::LDC_W | consts::LDC2_W => {
                 let (input, constant) = map_opt(be_u16, |val| constant_pool.get(val))(input)?;
                 Ok((input, Instruction::Constant { op, constant }))
             }
-            consts::GETSTATIC
-            | consts::PUTSTATIC
-            | consts::GETFIELD
-            | consts::PUTFIELD => {
-                //             int cp_info_offset = cpInfoOffsets[readUnsignedShort(currentOffset + 1)];
-                //             int nameAndTypeCpInfoOffset = cpInfoOffsets[readUnsignedShort(cp_info_offset + 2)];
-                //             String owner = readClass(cp_info_offset, charBuffer);
-                //             String name = readUTF8(nameAndTypeCpInfoOffset, charBuffer);
-                //             String descriptor = readUTF8(nameAndTypeCpInfoOffset + 2, charBuffer);
-
-                let (input, cp_info_offset) = be_u16(input)?;
-
-                Ok((input, Instruction::Field { op, owner: 0, name: 0, descriptor: 0 }));
+            consts::GETSTATIC | consts::PUTSTATIC | consts::GETFIELD | consts::PUTFIELD => Ok((
+                input,
+                Instruction::Field {
+                    op,
+                    field_index: be_u16(input)?.1,
+                },
+            )),
+            consts::INVOKEVIRTUAL | consts::INVOKESPECIAL | consts::INVOKESTATIC => Ok((
+                input,
+                Instruction::Method {
+                    op,
+                    method_index: be_u16(input)?.1,
+                },
+            )),
+            consts::INVOKEINTERFACE => {
+                let method_index = be_u16(input)?.1;
+                let things = be_u16(input)?.1; // advance 2
+                Ok((input, Instruction::Method { op, method_index }))
             }
-            consts::INVOKEVIRTUAL
-            | consts::INVOKESPECIAL
-            | consts::INVOKESTATIC
-            | consts::INVOKEINTERFACE => {
-
-            }
-            _ => panic!("hah"),
+            consts::NEW | consts::ANEWARRAY | consts::CHECKCAST | consts::INSTANCEOF => Ok((
+                input,
+                Instruction::Typed {
+                    op,
+                    type_index: be_u16(input)?.1,
+                },
+            )),
+            consts::IINC => Ok((
+                input,
+                Instruction::Inc {
+                    op,
+                    amount: be_u8(input)?.1,
+                },
+            )),
+            _ => panic!("Opcode {} is not supported.", op),
         }
     }
 }
