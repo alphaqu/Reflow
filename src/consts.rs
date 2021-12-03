@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use bitflags::bitflags;
+use crate::java_code::Op;
 
 bitflags! {
     pub struct FieldAccessFlags: u16 {
@@ -258,8 +259,8 @@ pub const IFNULL: u8 = 198;
 pub const IFNONNULL: u8 = 199;
 
 
-pub fn print_op(op: u8) {
-    println!("{}", match op {
+pub fn print_op(op: &Op) {
+    println!("{}", match op.op {
         NOP => "NOP",
         ACONST_NULL => "ACONST_NULL",
         ICONST_M1 => "ICONST_M1",
