@@ -259,8 +259,8 @@ pub const IFNULL: u8 = 198;
 pub const IFNONNULL: u8 = 199;
 
 
-pub fn print_op(op: &Op) {
-    println!("{}", match op.op {
+pub fn print_op(op: &u8) -> &'static str {
+   match *op {
         NOP => "NOP",
         ACONST_NULL => "ACONST_NULL",
         ICONST_M1 => "ICONST_M1",
@@ -464,5 +464,5 @@ pub fn print_op(op: &Op) {
         IFNULL => "IFNULL",
         IFNONNULL => "IFNONNULL",
         _ => "WHAT"
-    });
+    }
 }

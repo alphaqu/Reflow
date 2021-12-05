@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 
 use nom::bytes::complete::{tag, take};
 use nom::combinator::{map, map_opt, map_res};
-use nom::error::{make_error, ErrorKind};
+use nom::error::{ErrorKind, make_error};
 use nom::multi::{length_count, length_data, length_value};
 use nom::number::complete::{be_i16, be_u16, be_u32, be_u64, be_u8};
 use nom::sequence::{pair, tuple};
@@ -180,6 +180,14 @@ pub enum ConstantInfo {
     UTF8 {
         text: String,
     },
+    MethodDescriptor {
+        owner: String,
+        parameters: Vec<String>,
+    },
+    FieldDescriptor {
+        owner: String,
+        field: String,
+    },
     MethodHandle {
         reference_kind: u8,
         reference_index: u16,
@@ -194,6 +202,17 @@ pub enum ConstantInfo {
 }
 
 impl ConstantInfo {
+    pub fn parse_method_descriptor(text: &String) {
+        let chars = text.chars();
+        for c in chars {
+            if c == ')' {
+                break
+            }
+
+
+        }
+    }
+
     pub fn parse(input: &[u8]) -> IResult<Self> {
         let (input, variant) = be_u8(input)?;
         match variant {
@@ -396,5 +415,13 @@ impl ConstantPool {
         assert!(index >= 1);
 
         self.0.get(index as usize - 1)
+    }
+
+    pub fn get_method_descriptor(&self, index: u16) -> Result<ConstantInfo::MethodDescriptor, &'static str> {
+        let option = self.get(index).unwrap();
+        match option {
+            ConstantInfo::UTF8 { text } => Ok()
+            _ => Err("ConstantInfo not UTF-8"),
+        }
     }
 }

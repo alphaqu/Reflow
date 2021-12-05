@@ -4,11 +4,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::consts::{MethodAccessFlags, print_op};
 use crate::java::{AttributeInfo, ClassInfo};
-use crate::java_code::Code;
+use crate::java_code::{Code, CodeChunkTarget};
 
 mod consts;
 mod java;
 mod java_code;
+mod java_decomp;
+mod java_type;
 
 fn main() {
     println!("Hello, world!");
@@ -38,15 +40,37 @@ fn main() {
                     println!();
                     let mut i = 0;
                     for x in code.code_chunks {
-                        // for(int i = x.start; i < x.stop; i++)
-                        println!("=== Chunk {}", i);
-
                         for x in x.start..x.stop {
                             let op = &code.code[x as usize];
-                            consts::print_op(op);
+                            println!("{}", op.print());
                         }
-                        println!("Goes to {:?}", x.target);
-                        println!();
+
+                    //   print!("{} [label=\"", i);
+                    //   for x in x.start..x.stop {
+                    //       let op = &code.code[x as usize];
+                    //       print!("{}\n", op.print());
+                    //   }
+                    //   println!("\"];");
+                    //   //print!("{}-{} ", x.start, x.stop);
+                    //  match x.target {
+                    //      CodeChunkTarget::Basic => {
+                    //          println!("{} -> {}", i, i + 1);
+                    //      }
+                    //      CodeChunkTarget::Return => {
+                    //          println!("{}", i);
+                    //      }
+                    //      CodeChunkTarget::Throw => {
+
+                    //      }
+                    //      CodeChunkTarget::Condition { true_chunk_pos } => {
+                    //          println!("{} -> {}", i, i + 1);
+                    //          println!("{} -> {}", i, true_chunk_pos + 1);
+                    //      }
+                    //      CodeChunkTarget::Goto { chunk_pos } => {
+                    //          println!("{} -> {}", i, chunk_pos + 1);
+                    //      }
+                    //      CodeChunkTarget::Switch { .. } => {}
+                    //  }
                         i += 1;
                     }
                 }

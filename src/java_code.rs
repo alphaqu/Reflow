@@ -24,17 +24,29 @@ impl Op {
         let (input, (inst, length, op)) = Instruction::parse(input, op)?;
         Ok((input, (Op { op, inst }, length + 1))) // instructionType length and op
     }
+
+    pub fn print(&self) -> String {
+        match &self.inst {
+            Instruction::ComparisonJump { jump } => { format!("{}: {}", consts::print_op(&self.op), jump.get_pos()) }
+            Instruction::SwitchJump { jumps } => { format!("{}: ", consts::print_op(&self.op)) }
+            Instruction::Jump { jump } => { format!("{}: {}", consts::print_op(&self.op), jump.get_pos()) }
+            _ => { format!("{}: ", consts::print_op(&self.op)) }
+        }
+    }
 }
 
 pub enum Instruction {
-    // nop, aconst_null,
+    // nop
+    Nop,
+    // aconst_null,
     // iconst_m1,
     // iconst_0, iconst_1, iconst_2, iconst_3, iconst_4, iconst_5,
     // lconst_0, lconst_1,
     // fconst_0, fconst_1, fconst_2,
     // dconst_0, dconst_1,
-    // arraylength
     Value,
+    // arraylength
+    GetArrayLength,
     // pop, pop2, dup, dup_x1, dup_x2, dup2, dup2_x1, dup2_x2, swap
     Stack,
     // iadd, ladd, fadd, dadd,
@@ -85,10 +97,14 @@ pub enum Instruction {
     ArrayStore,
     // lcmp, fcmpl, fcmpg, dcmpl, dcmpg
     Comparison,
-    // checkcast, instanceof
-    ComparisonTyped { pool_pos: u16 },
-    // if_icmpeq, if_icmpne, if_icmplt, if_icmpge, if_icmpgt, if_icmple, if_acmpeq, if_acmpne, ifeq, ifne, iflt, ifge, ifgt, ifle,
+    // checkcast
+    Cast { pool_pos: u16 },
+    // instanceof
+    Instanceof { pool_pos: u16 },
+    // if_icmpeq, if_icmpne, if_icmplt, if_icmpge, if_icmpgt, if_icmple, if_acmpeq, if_acmpne
     ComparisonJump { jump: JumpValue },
+    // ifeq, ifne, iflt, ifge, ifgt, ifle,
+    ZeroComparisonJump { jump: JumpValue },
     // tableswitch lookupswitch
     SwitchJump { jumps: Vec<JumpValue> },
     // goto, jsr, goto_w, jsr_w
@@ -97,12 +113,16 @@ pub enum Instruction {
     New { pool_pos: u16 },
     // newarray
     NewPrimitiveArray { array_type: u8 },
-    // getstatic, getfield
-    Get { pool_pos: u16 },
-    // putstatic, putfield
-    Put { pool_pos: u16 },
+    // getfield
+    GetField { pool_pos: u16 },
+    // getstatic
+    GetStaticField { pool_pos: u16 },
+    // putfield
+    PutField { pool_pos: u16 },
+    // putstatic
+    PutStaticField { pool_pos: u16 },
     // invokevirtual, invokespecial, invokestatic, invokeinterface, invokedynamic
-    Invoke { pool_pos: u16 },
+    InvokeMethod { pool_pos: u16 },
     // monitorenter, monitorexit
     Monitor,
 }
@@ -143,10 +163,13 @@ impl JumpUnion {
 impl Instruction {
     pub fn parse(input: &[u8], op: u8) -> IResult<(Self, u8, u8)> {
         match op {
+            // nop
+            NOP => Ok((input, (Instruction::Value, 0, op))),
             // Constant
-            NOP | ACONST_NULL | ICONST_M1 | ICONST_0 | ICONST_1 | ICONST_2 | ICONST_3
+            ACONST_NULL | ICONST_M1 | ICONST_0 | ICONST_1 | ICONST_2 | ICONST_3
             | ICONST_4 | ICONST_5 | LCONST_0 | LCONST_1 | FCONST_0 | FCONST_1 | FCONST_2
-            | DCONST_0 | DCONST_1 | ARRAYLENGTH => Ok((input, (Instruction::Value, 0, op))),
+            | DCONST_0 | DCONST_1 => Ok((input, (Instruction::Value, 0, op))),
+            ARRAYLENGTH => Ok((input, (Instruction::Value, 0, op))),
             // Stack
             POP | POP2 | DUP | DUP_X1 | DUP_X2 | DUP2 | DUP2_X1 | DUP2_X2 | SWAP => {
                 Ok((input, (Instruction::Stack, 0, op)))
@@ -229,14 +252,25 @@ impl Instruction {
             })),
             // Comparisons
             LCMP | FCMPL | FCMPG | DCMPL | DCMPG => Ok((input, (Instruction::Comparison, 0, op))),
-            CHECKCAST | INSTANCEOF => map(be_u16, |pool_pos| {
-                (Instruction::ComparisonTyped { pool_pos }, 2, op)
+            CHECKCAST => map(be_u16, |pool_pos| {
+                (Instruction::Cast { pool_pos }, 2, op)
+            })(input),
+            INSTANCEOF => map(be_u16, |pool_pos| {
+                (Instruction::Instanceof { pool_pos }, 2, op)
             })(input),
             // Jumps
             IF_ICMPEQ | IF_ICMPNE | IF_ICMPLT | IF_ICMPGE | IF_ICMPGT | IF_ICMPLE | IF_ACMPEQ
-            | IF_ACMPNE | IFEQ | IFNE | IFLT | IFGE | IFGT | IFLE => map(be_i16, |jump_offset| {
+            | IF_ACMPNE => map(be_i16, |jump_offset| {
                 (
                     Instruction::ComparisonJump { jump: JumpValue::new(jump_offset as i32) },
+                    2,
+                    op,
+                )
+            })(input),
+
+            IFEQ | IFNE | IFLT | IFGE | IFGT | IFLE => map(be_i16, |jump_offset| {
+                (
+                    Instruction::ZeroComparisonJump { jump: JumpValue::new(jump_offset as i32) },
                     2,
                     op,
                 )
@@ -246,7 +280,7 @@ impl Instruction {
             // Jump
             GOTO | JSR => map(be_i16, |jump_offset| {
                 (
-                    Instruction::ComparisonJump { jump: JumpValue::new(jump_offset as i32) },
+                    Instruction::Jump { jump: JumpValue::new(jump_offset as i32) },
                     2,
                     op,
                 )
@@ -266,55 +300,28 @@ impl Instruction {
                 (Instruction::NewPrimitiveArray { array_type }, 1, op)
             })(input),
             // Get
-            GETSTATIC | GETFIELD => {
-                map(be_u16, |pool_pos| (Instruction::Get { pool_pos }, 2, op))(input)
-            }
+            GETFIELD => map(be_u16, |pool_pos| (Instruction::GetField { pool_pos }, 2, op))(input),
+            GETSTATIC => map(be_u16, |pool_pos| (Instruction::GetStaticField { pool_pos }, 2, op))(input),
             // Put
-            PUTSTATIC | PUTFIELD => {
-                map(be_u16, |pool_pos| (Instruction::Put { pool_pos }, 2, op))(input)
-            }
+            PUTFIELD => map(be_u16, |pool_pos| (Instruction::PutField { pool_pos }, 2, op))(input),
+            PUTSTATIC => map(be_u16, |pool_pos| (Instruction::PutStaticField { pool_pos }, 2, op))(input),
             // Invoke
             INVOKEVIRTUAL | INVOKESPECIAL | INVOKESTATIC | INVOKEINTERFACE | INVOKEDYNAMIC => {
-                map(be_u16, |pool_pos| (Instruction::Invoke { pool_pos }, 2, op))(input)
+                map(be_u16, |pool_pos| (Instruction::InvokeMethod { pool_pos }, 2, op))(input)
             }
             MONITORENTER | MONITOREXIT => Ok((input, (Instruction::Monitor, 0, op))),
             _ => Err(nom::Err::Error(make_error(input, ErrorKind::Fail))),
         }
     }
-
-    fn process_jumps(
-        &mut self,
-        op_byte_to_op: &Vec<u32>,
-        mut op_pos: u32,
-        split_locations: &mut Vec<u32>,
-        op_byte: u32,
-    ) {
-        //
-        match self {
-            Instruction::ComparisonJump { jump } => {
-                split_locations.push(op_pos + 1);
-                jump.union.apply(op_byte, op_byte_to_op);
-                split_locations.push(jump.get_pos() - 1);
-            }
-            Instruction::Jump { jump } => {
-                jump.union.apply(op_byte, op_byte_to_op);
-                split_locations.push(jump.get_pos() - 1);
-            }
-            Instruction::Return => {
-                split_locations.push(op_pos + 1);
-            }
-            _ => {}
-        };
-    }
 }
 
 pub struct Code {
-    pub(crate) max_stack: u16,
-    pub(crate) max_locals: u16,
-    pub(crate) code: Vec<Op>,
-    pub(crate) code_chunks: Vec<CodeChunk>,
-    pub(crate) exception_table: Vec<AttributeException>,
-    pub(crate) attribute_info: Vec<AttributeInfo>,
+    pub max_stack: u16,
+    pub max_locals: u16,
+    pub code: Vec<Op>,
+    pub code_chunks: Vec<CodeChunk>,
+    pub exception_table: Vec<AttributeException>,
+    pub attribute_info: Vec<AttributeInfo>,
 }
 
 pub struct CodeChunk {
@@ -329,12 +336,17 @@ pub enum CodeChunkTarget {
     Basic,
     Return,
     Throw,
-    Condition { target_true: u32 },
-    Goto { target: u32 },
+    Condition { true_chunk_pos: u32 },
+    Goto { chunk_pos: u32 },
     Switch { targets: Vec<u32> },
 }
 
 impl Code {
+    pub fn add_source(code: &mut Vec<Op>, from: u32, to: u32) {
+        let option: &mut Op = code.get_mut(to as usize).unwrap();
+        option.source.push(from);
+    }
+
     pub fn parse<'a>(input: &'a [u8], constant_pool: &ConstantPool) -> IResult<'a, Self> {
         println!("Code");
         let (input, max_stack) = be_u16(input)?;
@@ -343,8 +355,6 @@ impl Code {
         let mut input = input;
 
         let mut op_byte_to_op: Vec<u32> = Vec::with_capacity(code_length as usize);
-        println!("Capacity {}", op_byte_to_op.capacity());
-
         let mut op_byte_ops: Vec<(u32, Op)> = Vec::new(); //
 
 
@@ -365,65 +375,89 @@ impl Code {
 
         // Apply all jumps, as jumps are relative to byte location not op location,
         // This also adds stuff to the split vec which is all of the spots which it should split the code on.
-        let mut split_locations: Vec<u32> = Vec::new();
+        let mut splits: Vec<u32> = Vec::new();
         let mut code: Vec<Op> = Vec::with_capacity(op_byte_ops.len());
         op_pos = 0;
         for (op_byte, mut op) in op_byte_ops {
-            op.inst.process_jumps(&mut op_byte_to_op, op_pos, &mut split_locations, op_byte);
+            match &mut op.inst {
+                Instruction::ComparisonJump { jump } => {
+                    jump.union.apply(op_byte, &op_byte_to_op);
+                    let next_op = op_pos + 1;
+                    let jump_op = jump.get_pos();
+                    splits.push(next_op);
+                    splits.push(jump_op);
+                }
+                Instruction::ZeroComparisonJump { jump } => {
+                    jump.union.apply(op_byte, &op_byte_to_op);
+                    let next_op = op_pos + 1;
+                    let jump_op = jump.get_pos();
+                    splits.push(next_op);
+                    splits.push(jump_op);
+                }
+                Instruction::Jump { jump } => {
+                    jump.union.apply(op_byte, &op_byte_to_op);
+                    let next_op = op_pos + 1;
+                    let jump_op = jump.get_pos();
+                    splits.push(next_op);
+                    splits.push(jump_op);
+                }
+                Instruction::Return => {
+                    let next_op = op_pos + 1;
+                    splits.push(next_op);
+                }
+                _ => {}
+            };
+
             code.insert(op_pos as usize, op);
             op_pos += 1;
         }
 
-
         // sorts and deduplicate all of the split locations so we don't split twice as that might lead to issues
-        split_locations.dedup();
-        split_locations.sort();
-        let mut code_chunks: Vec<CodeChunk> = Vec::with_capacity(split_locations.len());
+        splits.sort();
+        splits.dedup();
+        let mut code_chunks: Vec<CodeChunk> = Vec::with_capacity(splits.len());
 
         // op_byte_to_op now becomes op_to_chunk to save memory and computation
         let mut op_to_chunk = op_byte_to_op;
 
         // create chunks and fill op_to_chunk
         let mut last_split = 0;
-        let mut chunk_pos = 0;
-        for split_location in split_locations {
-            op_to_chunk.insert(split_location as usize, chunk_pos);
-            code_chunks.insert(
-                chunk_pos as usize,
-                CodeChunk {
-                    start: last_split,
-                    stop: split_location,
-                    source: Vec::new(),
-                    target: CodeChunkTarget::Basic,
-                },
-            );
-            last_split = split_location;
-            chunk_pos += 1;
-        }
-
-
-        for x in &code_chunks {
-            println!("Chunk {} to {}", x.start, x.stop)
+        for i in 0..splits.len() {
+            let split = splits[i];
+            let chunk = CodeChunk {
+                start: last_split,
+                stop: split,
+                source: Vec::new(),
+                target: CodeChunkTarget::Basic,
+            };
+            code_chunks.push(chunk);
+            op_to_chunk.insert(split as usize, i as u32);
+            last_split = split as u32;
         }
 
         // calculate targets
-        chunk_pos = 0;
         for chunk in 0..code_chunks.len() {
-            let i = (&code_chunks[chunk].stop - 1);
+            let i = (&(code_chunks[chunk].stop - 1));
 
-            match &code[i as usize].inst {
+            match &code[*i as usize].inst {
                 Instruction::ComparisonJump { jump } => {
                     let jump_chunk_pos = op_to_chunk[jump.get_pos() as usize];
-                    &mut code_chunks[jump_chunk_pos as usize].source.push(chunk_pos);
-                    &mut code_chunks[(chunk_pos + 1) as usize].source.push(chunk_pos);
-                    code_chunks[chunk].target = CodeChunkTarget::Condition { target_true: jump_chunk_pos };
+                    &mut code_chunks[jump_chunk_pos as usize].source.push(chunk as u32);
+                    &mut code_chunks[(chunk + 1) as usize].source.push(chunk as u32);
+                    code_chunks[chunk].target = CodeChunkTarget::Condition { true_chunk_pos: jump_chunk_pos };
+                }
+                Instruction::ZeroComparisonJump { jump } => {
+                    let jump_chunk_pos = op_to_chunk[jump.get_pos() as usize];
+                    &mut code_chunks[jump_chunk_pos as usize].source.push(chunk as u32);
+                    &mut code_chunks[(chunk + 1) as usize].source.push(chunk as u32);
+                    code_chunks[chunk].target = CodeChunkTarget::Condition { true_chunk_pos: jump_chunk_pos };
                 }
                 // TODO Switch
                 Instruction::Jump { jump } => {
                     let jump_chunk_pos = op_to_chunk[jump.get_pos() as usize];
-                    &mut code_chunks[jump_chunk_pos as usize].source.push(chunk_pos);
+                    &mut code_chunks[jump_chunk_pos as usize].source.push(chunk as u32);
                     code_chunks[chunk].target = CodeChunkTarget::Goto {
-                        target: jump_chunk_pos,
+                        chunk_pos: jump_chunk_pos,
                     };
                 }
                 Instruction::Return => {
@@ -433,16 +467,13 @@ impl Code {
                     code_chunks[chunk].target = CodeChunkTarget::Throw;
                 }
                 _ => {
-                    &mut code_chunks[(chunk_pos + 1) as usize].source.push(chunk_pos);
+                    &mut code_chunks[(chunk + 1) as usize].source.push(chunk as u32);
                     code_chunks[chunk].target = CodeChunkTarget::Basic;
                 }
             };
-            chunk_pos += 1;
         }
-        let (input, exception_table) =
-            length_count(be_u16, |input| AttributeException::parse(input))(input)?;
-        let (input, attribute_info) =
-            length_count(be_u16, |input| AttributeInfo::parse(input, &constant_pool))(input)?;
+        let (input, exception_table) = length_count(be_u16, |input| AttributeException::parse(input))(input)?;
+        let (input, attribute_info) = length_count(be_u16, |input| AttributeInfo::parse(input, &constant_pool))(input)?;
         Ok((
             input,
             Code {
